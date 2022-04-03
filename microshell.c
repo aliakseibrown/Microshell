@@ -1,184 +1,179 @@
-#include <stdio.h>
-#include <stdbool.h> //for while(true)
+#include <sys/wait.h>
+#include <termios.h>
 #include <string.h>
-#include <unistd.h> //for getcwd, chdir, fork
+#include <unistd.h>
 #include <stdlib.h>
-#include <sys/wait.h> //wait
-#include<signal.h>
+#include <signal.h>
+#include <stdio.h>
+#define MAX 1024
+#define HND 100
+#define MIN 30
 
-#include <termios.h> //getch
+char arrayHistoryCommands[HND][MAX];
+char arrayFirstTwoCharacters[MIN];
+char *arrayCommands[MAX];
+char arrayDirectory[MAX];
+char arrayInput[MAX];
+char letters;
 
-char input[1024];
-char* words[1024];
-char cwd[1024];
-int a, h = 0;
-char str[20];
+int counterHistoryActive;
+int counterHistoryTotal;
+int arrayColors[5];
+int counterLetters;
+int counterErrors;
 
-char* const tmp;
+const char color[8][MIN] =
+        {"\x1B[0m",  // reset 0
+         "\x1B[32m", // green 1
+         "\x1B[33m", // yellow 2
+         "\x1B[34m", // blue 3
+         "\x1B[35m", // magenta 4
+         "\x1B[36m", // cyan 5
+         "\x1B[37m", // white 6
+         "\x1B[31m"  // red 7
+        };
+
+
+static void sigintHandler();
+int functionGetch();
+
+void getCurrentDirection();
+void settingsHomeColors();
+void inputFromKeyboard();
+void changeEmptyString();
+void errorNotFound();
+void keyArrows();
+
+void commandPrintWorkingDirection(char **arg);
+void commandMakeDirectory(char **arg);
+void commandCopyingFiles(char **arg);
+void commandListOfFiles(char **arg);
+void commandScripts(char **arg);
+void commandBash(char **arg);
+void commandChangeDirectory();
+void commandChangeColor();
+void commandClear();
+void commandHelp();
+
+int main(){
+    settingsHomeColors();
+    while(1) {
+        signal(SIGINT, sigintHandler);
+
+        getCurrentDirection();
+        inputFromKeyboard();
+
+        char *arg[] = { //arguments for fork
+                arrayCommands[0],
+                arrayCommands[1],
+                arrayCommands[2],
+                arrayCommands[3],
+                NULL
+        };
+
+        changeEmptyString();
+
+        commandPrintWorkingDirection(arg);
+        commandMakeDirectory(arg);
+        commandChangeDirectory();
+        commandCopyingFiles(arg);
+        commandListOfFiles(arg);
+        commandChangeColor();
+        commandScripts(arg);
+        commandBash(arg);
+        commandClear();
+        commandHelp();
+
+        if (strcmp (arrayCommands[0], "exit") == 0){
+            counterErrors = 1;
+            break;
+        }
+
+        errorNotFound();
+        counterErrors = 0;
+    }
+}
+
+
+
 
 static void sigintHandler(int sig){
     write(STDERR_FILENO, " Caught SIGINT!\n", 15);
 }
-const char commands[6][20] =
-        {"exit",
-         "cd",
-         "help",
-         "ccolor",
-         "./",
-         "clear"
-        };
 
-const char color[8][30] =
-        {"\x1B[0m", //reset 0
-         "\x1B[32m", // green 1
-         "\x1B[33m", // yellow 2
-         "\x1B[34m",// blue 3
-         "\x1B[35m", // magenta 4
-         "\x1B[36m", // cyan 5
-         "\x1B[37m", //white 6
-         "\x1B[31m" //red 7
-        };
-void get_input();
-
-int arraycolors[5];
-
-void showcwd(){
-    getcwd(cwd, sizeof(cwd));
-    char* const tmp = getenv("USER");
-    //printf("%s%s: %s[~%s]%s$%s ",color[1], tmp, color[2], cwd, color[7], color[0]);
-    printf("%s%s: %s[~%s]%s$%s ",color[arraycolors[0]], tmp, color[arraycolors[1]], cwd, color[arraycolors[2]], color[arraycolors[3]]);
+void getCurrentDirection(){
+    getcwd(arrayDirectory, sizeof(arrayDirectory));
+    char *const tmp = getenv("USER");
+    printf("%s%s: %s[~%s]%s$%s ",
+           color[arrayColors[0]], tmp,
+           color[arrayColors[1]], arrayDirectory,
+           color[arrayColors[2]],
+           color[arrayColors[3]]);
 }
 
-int getche(void)
-{
-    struct termios oldattr, newattr;
-    int ch;
-    tcgetattr( STDIN_FILENO, &oldattr );
-    newattr = oldattr;
-    newattr.c_lflag &= ~( ICANON );
-    tcsetattr( STDIN_FILENO, TCSANOW, &newattr );
-    ch = getchar();
-    tcsetattr( STDIN_FILENO, TCSANOW, &oldattr );
-    return ch;
-}
-char history[100][1024];
-
-int ggetch();
-void get_input() {
+void inputFromKeyboard() {
     printf("\b \b");
     printf(" ");
-    //fgets(input, 1024, stdin);
-
-    //history[h] = fgets(input, 1024, stdin);
-    //if(history[h] != NULL){
-    //    h++;
-    //}
-    //printf("%s", history[h]);
-    //int j;
-    //input[j] = "\0";
-    char ch;
-    int j = 0, k = 0, b = 0;
-    b = h;
-    for(j=0;(ch=ggetch())!='\n';){
-        if(ch!= 127 ){
-            input[j]=ch;
-            printf("%c",input[j]);
-            j++;
+    counterHistoryActive = counterHistoryTotal;
+    memset(arrayInput, 0, MAX);
+    for(counterLetters = 0; (letters = functionGetch()) != '\n';){
+        if(letters != 127 ){
+            arrayInput[counterLetters]=letters;
+            printf("%c",arrayInput[counterLetters]);
+            counterLetters++;
+            //input[counterLetters]=NULL;
         }else{
-            j--;
-            if(j<0)
-                j++;
+            counterLetters--;
+            if(counterLetters < 0)
+                counterLetters++;
             else
                 printf("\b \b"); //the effect of backspace
         }
-        input[j]='\0';
-        strcpy(history[h], input);
-        //ch = '\033';
-        if( ch == '\033'){
-            ggetch();
-            ch=ggetch();
-            switch(ch){
-            case 'A':
-                //printf("\n");
-                //if (history[b] == NULL){
-                //  history[b] == "";
-                //}
-                j=0;
-                //printf ("\33[1B");
-                printf("\33[2K\r"); // clear the screen
-                if( b == 0 && h == 0){
-                    j=0;
-                    printf("");
-                }else if( b == 0 ){
-                    j=0;
-                    b = h-1;
-                }else{
-                    b--;
-                }
-                printf("\r");
-                showcwd();
-                strcpy(input,history[b]);
-                printf("%s", input);
-                j = strlen(input);
-                //k++;
-                break;
-            case 'B':
-                j=0;
-                //printf ("\33[1A");
-                printf("\33[2K\r"); // clear the screen
-                if( b == h){
-                    printf("");
-                    j=0;
-                }
-                if ( b > h){
-                    b = h;
-                    j=0;
-                }else{
-                    b++;
-                }
-                printf("\r");
-                showcwd();
-                strcpy(input, history[b]);
-                printf("%s", input);
-                j = strlen(input);
-                break;
-            //case 'C':
-                //printf("\t");
-                //break;
-            //case 'D':
-                //if((int k = (strlen(input))) == 0)
-                //printf("\b");
-                //break;
-            }
-        }
+        arrayInput[counterLetters] = '\0';
+        strcpy(arrayHistoryCommands[counterHistoryTotal], arrayInput);
+       keyArrows();
     }
     printf("\n");
 
-
     for(int i = 0; i<2; i++){
-        str[i] = input[i];
+        arrayFirstTwoCharacters[i] = arrayInput[i];
     }
     int i = 0;
-    char* string = strtok(input, " \n");
-    while (string != NULL){
-        words[i] = string;
-        string = strtok(NULL, " \n");
-        i++;
+    char delim = '\"';
+
+    if(strchr(arrayInput, delim ) == 0){
+        char *string = strtok(arrayInput, " \n");
+        while (string != NULL){
+            arrayCommands[i] = string;
+            string = strtok(NULL, " \n");
+            i++;
+        }
+        arrayCommands[i] = NULL;
+        if (arrayCommands[0] != NULL ){;
+            counterHistoryTotal++;
+        }
+    }else{
+        char *string = strtok(arrayInput, " \n");
+        while (string != NULL){
+            arrayCommands[i] = string;
+            string = strtok(NULL, "\"\n");
+            i++;
+        }
+        arrayCommands[i] = NULL;
+        if (arrayCommands[0] != NULL ){;
+            counterHistoryTotal++;
+        }
     }
-    words[i] = NULL;
-    if ( words[0] != NULL ){;
-        h++;
-    }
-    //printf("%s\n",input);
 }
 
-void emptystr(){
-    if (words[0] == NULL){
-        words[0] = "s";
-        a = 1;
+void changeEmptyString(){
+    if (arrayCommands[0] == NULL){
+        arrayCommands[0] = "s";
+        counterErrors = 1;
     }
 }
-int ggetch(void){
+
+int functionGetch(void){
     struct termios oldattr, newattr;
     int ch;
     tcgetattr(0, &oldattr);
@@ -190,268 +185,277 @@ int ggetch(void){
     return(ch);
 }
 
-void wrongcmd(){
-    if (a != 1) {
-        printf("command not found: %s\n",words[0]);
+void errorNotFound(){
+    if (counterErrors != 1) {
+        printf("command not found: %s\n", arrayCommands[0]);
     }
 }
 
-int main(){
-    arraycolors[0] = 1; //basic color settings(will be changed in the future)
-    arraycolors[1] = 2;
-    arraycolors[2] = 7;
-    arraycolors[3] = 0;
+void commandChangeColor(){
+    if (strcmp(arrayCommands[0], "ccolor") == 0) {
+        counterErrors = 1;
+        if (arrayCommands[5] != NULL) {
+            printf("ccolor: Extra arguments\n");
+        } else {
+            if (arrayCommands[1] == NULL) {
+                arrayCommands[1] = "s";
+            }
+            if (arrayCommands[2] == NULL) {
+                arrayCommands[2] = "s";
+            }
+            if (arrayCommands[3] == NULL) {
+                arrayCommands[3] = "s";
+            }
+            if (arrayCommands[4] == NULL) {
+                arrayCommands[4] = "s";
+            }
+
+            changeEmptyString();
+            counterErrors = 1;
+            printf("Write numbers of the colors in the order to change:\n"
+                   "user: [path] pointer($) output\n"
+                   "0 - reset\n"
+                   "1 - green\n"
+                   "2 - yellow\n"
+                   "3 - blue\n"
+                   "4 - magenta\n"
+                   "5 - cyan\n"
+                   "6 - white\n"
+                   "7 - red\n"
+            );
+            arrayColors[0] = atoi(arrayCommands[1]);
+            arrayColors[1] = atoi(arrayCommands[2]);
+            arrayColors[2] = atoi(arrayCommands[3]);
+            arrayColors[3] = atoi(arrayCommands[4]);
+        }
+    }
+}
+
+void commandHelp(){
+    if (strcmp (arrayCommands[0], "help") == 0){
+        counterErrors = 1;
+        printf("\n"
+               "********  Bitches rule the world ***********\n"
+               "******************(c) Aliaksei Brown  ******\n"
+               "-history\n"
+               "-ccolor\n"
+               "-mkdir\n"
+               "-clear\n"
+               "-help\n"
+               "-bash\n"
+               "-exit\n"
+               "-pwd\n"
+               "-cp\n"
+               "-cd\n"
+               "-ls\n"
+               "-./\n");
+    }
+}
+
+void commandChangeDirectory(){
+    if ((strcmp (arrayCommands[0], "cd") == 0) && (arrayCommands[1] != NULL)) {
+        if (strcmp(arrayCommands[1], "~") == 0){
+            counterErrors = 1;
+            chdir(getenv("HOME"));
+        }
+        else if (strcmp(arrayCommands[1], "-") == 0){
+            counterErrors = 1;
+            if (chdir("..") != 0){
+                perror(arrayCommands[0]);
+            }
+            getcwd(arrayDirectory, sizeof(arrayDirectory));
+            printf("%s\n", arrayDirectory);
+
+        }
+        else if ((getcwd(arrayDirectory, sizeof(arrayDirectory))) != NULL){
+            counterErrors = 1;
+            if (chdir(arrayCommands[1]) != 0){
+                perror(arrayCommands[0]);
+            }
+        } else {
+            printf("Not in directory");
+        }
+    }
+    else if (strcmp (arrayCommands[0], "cd") == 0){
+        if ((getcwd(arrayDirectory, sizeof(arrayDirectory))) != NULL){
+            counterErrors = 1;
+            chdir(getenv("HOME"));
+        }else{
+            perror("");
+        }
+    }
+}
+void settingsHomeColors(){
     chdir(getenv("HOME"));
-    while(1) {
-        signal(SIGINT, sigintHandler);
+    arrayColors[0] = 1; //basic color settings(will be changed in the future by command)
+    arrayColors[1] = 2;
+    arrayColors[2] = 7;
+    arrayColors[3] = 0;
+}
+void commandPrintWorkingDirection(char **arg){
+    if (strcmp (arrayCommands[0], "pwd") == 0){
+        counterErrors = 1;
 
-        showcwd();
-        get_input();
-        char* arg[] = {
-                words[0],
-                words[1],
-                words[2],
-                words[3],
-                NULL
-        };
-        //printf("%s", history[h]);
-        /*while(ggetch() == '\033'){
-            ggetch();
-            switch(ggetch()){
-                case 'A':
-                    if(h > 0){
-                        printf("%s\n", history[h]);
-                        h--;
-                    }else{
-                        printf("The history is empty");
-                    }
-                    printf("You pressed the up arrow key !!\n");
-                    break;
-                case 'B':
-                    if(h < 10){
-                        printf("%s\n", history[h]);
-                        h++;
-                    }else{
-                        printf("The history is empty");
-                    }
-                    printf("You pressed the down arrow key !!\n");
-                    break;
-                case 'C':
-                    printf("You pressed the right arrow key !!\n");
-                    break;
-                case 'D':
-                    printf("You pressed the left arrow key !!\n");
-                    break;
-            }
-        }
-         */
-
-        emptystr();
-
-        if (strcmp(words[0], commands[3]) == 0) { //ccolor
-            a = 1;
-            if (words[5] != NULL) {
-                printf("ccolor: Extra arguments\n");
-            } else {
-                if (words[1] == NULL) {
-                    words[1] = "s";
-                }
-                if (words[2] == NULL) {
-                    words[2] = "s";
-                }
-                if (words[3] == NULL) {
-                    words[3] = "s";
-                }
-                if (words[4] == NULL) {
-                    words[4] = "s";
-                }
-
-                emptystr();
-                a = 1;
-                printf("Write numbers of the colors in the order to change:\n"
-                       "user: [path] pointer($) output\n"
-                       "0 - reset\n"
-                       "1 - green\n"
-                       "2 - yellow\n"
-                       "3 - blue\n"
-                       "4 - magenta\n"
-                       "5 - cyan\n"
-                       "6 - white\n"
-                       "7 - red\n"
-                );
-                arraycolors[0] = atoi(words[1]);
-                arraycolors[1] = atoi(words[2]);
-                arraycolors[2] = atoi(words[3]);
-                arraycolors[3] = atoi(words[4]);
-                //char* const tmp = getenv("USER");
-                //printf("%s%s: %s[~%s]%s$%s \n",color[arraycolors[0]], tmp, color[arraycolors[1]], cwd, color[arraycolors[2]], color[arraycolors[0]]);
-
-            }
-        }//perror
-
-        if (strcmp (words[0], commands[2]) == 0){                                   //HELP
-            a = 1;
-            printf("\n"
-                   "*************  Bitches rule the world *****************\n"
-                   "*******************************(c) Aliaksei Brown  ****\n"
-                   "-ccolor\n"
-                   "-cd\n"
-                   "-ls\n"
-                   "-pwd\n"
-                   "-cp\n"
-                   "-bash\n"
-                   "-clear\n"
-                   "-exit\n"
-                   "-./\n"
-                   "history\n"
-                   "-help\n");
-            // fflush(stdin);
-
-        }
-
-        if ((strcmp (words[0], commands[1]) == 0) && (words[1] != NULL)) {           //CWD /directory
-            if (strcmp(words[1],"~") == 0){
-                a = 1;
-                chdir(getenv("HOME"));
-            }
-            else if (strcmp(words[1],"-") == 0){
-                a = 1;
-                if (chdir("..") !=0){
-                    perror(words[0]);
-                }
-                getcwd(cwd, sizeof(cwd));
-                printf("%s\n", cwd);
-
-            }
-            else if ((getcwd(cwd, sizeof(cwd))) != NULL){
-                a = 1;
-                if (chdir(words[1]) !=0){
-                    //printf("%s \"%s\" :" ,words[0], words[1]);
-                    perror(words[0]);
-                }
-            } else {
-                printf("Not in directory");
-            }
-        }
-        else if (strcmp (words[0], commands[1]) == 0){                                        //CWD
-            if ((getcwd(cwd, sizeof(cwd))) != NULL){
-                a = 1;
-                chdir(getenv("HOME"));
+        int pid = fork();
+        if (pid == 0){
+            if (execv("/bin/pwd", arg) == 0){
+                exit(1);
             }else{
                 perror("");
+                _exit(1);
             }
-            //fflush(stdin);
-        } /*else {
-                    printf("Not in directory");
-                }*/
-
-
-
-
-
-        if (strcmp (words[0], "pwd") == 0){                                      //PWD
-            a = 1;
-
-            int pid = fork();
-            if (pid == 0){
-                //Child process!
-                if (execv("/bin/pwd", arg) == 0){
-                    //printf("%s", words[1]);
-                    exit(1);
-                }else{
-                    perror("");
-                    _exit(1);
-                }
-            } else {
-                wait(NULL);
-            }
+        } else {
+            wait(NULL);
         }
+    }
+}
 
-        if (strcmp (words[0], "ls") == 0){                                //LS
-            a = 1;
+void commandListOfFiles(char **arg){
+    if (strcmp (arrayCommands[0], "ls") == 0){
+        counterErrors = 1;
 
-            int pid = fork();
-            if (pid == 0){
-                //Child process!
-                if (execv("/bin/ls", arg) == 0){
-                    //printf("%s", words[1]);
-                    exit(1);
-                }else{
-                    perror("");
-                    _exit(1);
-                }
-            } else {
-                wait(NULL);
-            }
-        }
-        if (strcmp (words[0], "bash") == 0){                                //bash
-            a = 1;
-
-            int pid = fork();
-            if (pid == 0){
-                //Child process!
-                if (execv("/bin/bash", arg) == 0){
-                    //printf("%s", words[1]);
-                    exit(1);
-                }else{
-                    perror("");
-                    _exit(1);
-                }
-            } else {
-                wait(NULL);
-            }
-        }
-
-        if (strcmp (words[0], "cp") == 0){                                 //cp
-            a = 1;
-            FILE *fp1, *fp2;
-            //char cbuf[1024];
-            int c;
-            ssize_t count;
-            fp1 = fopen(words[1], "r");
-            if (fp1 == NULL){
+        int pid = fork();
+        if (pid == 0){
+            if (execv("/bin/ls", arg) == 0){
+                exit(1);
+            }else{
                 perror("");
+                _exit(1);
             }
-            fp2 = fopen(words[2], "w");
-            while((c = fgetc(fp1)) != EOF){
-                putc(c,fp2);
-            }
-            printf("The file%s was created.\n", words[2]);
-            fclose(fp1);
-            fclose(fp2);
+        } else {
+            wait(NULL);
         }
+    }
+}
 
-        if (strcmp (str, commands[4]) == 0){                                           // ./
-            a = 1;
-            int pid = fork();
-            if (pid == 0){
-                //Child process!
-                if (execvp(words[0], arg) == 0){
-                    //_exit(1);
+void commandBash(char **arg){
+    if (strcmp (arrayCommands[0], "bash") == 0){
+        counterErrors = 1;
+
+        int pid = fork();
+        if (pid == 0){
+            if (execv("/bin/bash", arg) == 0){
+                exit(1);
+            }else{
+                perror("");
+                _exit(1);
+            }
+        } else {
+            wait(NULL);
+        }
+    }
+}
+
+void commandCopyingFiles(char **arg){
+    if (strcmp (arrayCommands[0], "cp") == 0){
+        counterErrors = 1;
+        FILE *fp1, *fp2;
+        int c;
+        ssize_t count;
+        fp1 = fopen(arrayCommands[1], "r");
+        if (fp1 == NULL){
+            perror("");
+        }
+        fp2 = fopen(arrayCommands[2], "w");
+        while((c = fgetc(fp1)) != EOF){
+            putc(c,fp2);
+        }
+        printf("The file%s was created.\n", arrayCommands[2]);
+        fclose(fp1);
+        fclose(fp2);
+    }
+}
+void commandScripts(char **arg) {
+    if (strcmp (arrayFirstTwoCharacters, "./") == 0){
+        counterErrors = 1;
+        int pid = fork();
+        if (pid == 0){
+            if (execvp(arrayCommands[0], arg) == 0){
+            }else{
+                perror("");
+                _exit(0);
+            }
+        } else {
+            wait(NULL);
+        }
+    }
+}
+
+void commandClear(){
+    if (strcmp (arrayCommands[0], "clear") == 0){
+        counterErrors = 1;
+        printf("\e[1;1H\e[2J");
+    }
+}
+
+void keyArrows(){
+    if(letters == '\033'){
+        functionGetch();
+        letters= functionGetch();
+        switch(letters){
+            case 'A':
+                //printf("A ARROW");
+                counterLetters=0;
+                printf("\33[2K\r"); // clear the screen
+                if(counterHistoryActive == 0 && counterHistoryTotal == 0){
+                    counterLetters=0;
+                    printf("");
+                }else if(counterHistoryActive == 0 ){
+                    counterLetters=0;
+                    counterHistoryActive = counterHistoryTotal - 1;
                 }else{
-                    perror("");
-                    //printf("Couldn't open the file: No such file\n");
-                    _exit(0);
+                    counterHistoryActive--;
                 }
-            } else {
-                wait(NULL);
+                printf("\r");
+                getCurrentDirection();
+                strcpy(arrayInput, arrayHistoryCommands[counterHistoryActive]);
+                printf("%s", arrayInput);
+                counterLetters = strlen(arrayInput);
+                //k++;
+                break;
+            case 'B':
+                counterLetters=0;
+                printf("\33[2K\r"); // clear the screen
+                if(counterHistoryActive == counterHistoryTotal){
+                    printf("");
+                    counterLetters=0;
+                }
+                if (counterHistoryActive > counterHistoryTotal){
+                    counterHistoryActive = counterHistoryTotal;
+                    counterLetters=0;
+                }else{
+                    counterHistoryActive++;
+                }
+                printf("\r");
+                getCurrentDirection();
+                strcpy(arrayInput, arrayHistoryCommands[counterHistoryActive]);
+                printf("%s", arrayInput);
+                counterLetters = strlen(arrayInput);
+                break;
+                //case 'C':
+                //printf("\t");
+                //break;
+                //case 'D':
+                //printf("\counterHistoryActive");
+                //break;
+        }
+    }
+}
+
+void commandMakeDirectory(char **arg){
+    if (strcmp (arrayCommands[0], "mkdir") == 0){
+        counterErrors = 1;
+
+        int pid = fork();
+        if (pid == 0){
+            if (execv("/bin/mkdir", arg) == 0){
+                exit(1);
+            }else{
+                perror("");
+                _exit(1);
             }
+        } else {
+            wait(NULL);
         }
-
-        if (strcmp (words[0], commands[0]) == 0){                       //exit
-            a = 1;
-            // fflush(stdin);
-            break;
-        }
-
-        if (strcmp (words[0], commands[5]) == 0){                       //clear
-            a = 1;
-            printf("\e[1;1H\e[2J");
-        }
-
-        wrongcmd();
-        a = 0;
-        //printf("%d", h);
-        //printf("The end of the while process\n");
     }
 }
