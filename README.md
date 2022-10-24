@@ -1,7 +1,7 @@
 # Microshell
 
 First project on C. Was written at the end of the first semester in university. 
-Main feature of the project is using keyboard arrows UP/DOWN for swiching history of the written commands by user. The function for that were made manually by creating a function a-la Getch, that is turning off usual keyboard print in Terminal and instead returning ANSII code of each key.
+Main feature of the project is using keyboard arrows UP/DOWN for switching history of the written commands by user. The function for that were made manually by creating a function a-la Getch, that is turning off usual keyboard print in Terminal and instead returning ANSII code of each key.
 The commands:
 
 
